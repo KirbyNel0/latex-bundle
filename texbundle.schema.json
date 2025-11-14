@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/KirbyNel0/latex-bundle/refs/heads/main/pkg.schema.json",
+    "title": "pkg.json",
+    "description": "LaTeX bundle setup file",
+    "type": "object",
+    
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "The bundle's name, will be used for directory names (should therefor not contain / or \\)",
+            "exclusiveMinimum": 0,
+            "minLength": 1,
+            "pattern": "^((?!\\/)(?!\\\\).)*$"
+        },
+        
+        "sty": {
+            "type": "array",
+            "description": "Names of LaTeX packages included in the bundle (.sty files)",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true,
+            "default": []
+        },
+        "sty-dir": {
+            "type": "string",
+            "description": "Where .sty files are located, relative to the config file",
+            "default": "texmf"
+        },
+        
+        "cls": {
+            "type": "array",
+            "description": "Names of LaTeX classes included in the bundle (.cls files)",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true,
+            "default": []
+        },
+        "cls-dir": {
+            "type": "string",
+            "description": "Where .cls files are located, relative to the config file",
+            "default": "texmf"
+        },
+        
+        "res": {
+            "type": "array",
+            "description": "Additional files used by files of the bundle, e.g. pictures",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true,
+            "default": []
+        },
+        "res-dir": {
+            "type": "string",
+            "description": "Where resource files are located, relative to the config file",
+            "default": "resources"
+        },
+        
+        "cwl-dir": {
+            "type": "string",
+            "description": "Location of .cwl files (TeXStudio autocompletion files), relative to the config file",
+            "default": "autocompletion"
+        }
+    }
+}

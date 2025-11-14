@@ -1,0 +1,16 @@
+{
+    "$schema": "https://raw.githubusercontent.com/KirbyNel0/latex-bundle/refs/heads/main/pkg.schema.json",
+    
+    "name": "mytexbundle",
+    
+    "sty": [],
+    "sty-dir": "texmf",
+    
+    "cls": [],
+    "cls-dir": "texmf",
+    
+    "res": [],
+    "res-dir": "resources",
+    
+    "cwl-dir": "autocompletion"
+}
