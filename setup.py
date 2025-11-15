@@ -45,12 +45,12 @@ def warn(*msg):
 # | ARGUMENTS                                                                                        |
 # +--------------------------------------------------------------------------------------------------+
 
-parser = argparse.ArgumentParser(description="Installation tool for LaTeX packages")
+parser = argparse.ArgumentParser(description="Installation tool for LaTeX bundles")
 
 parser.add_argument(
     "-i",
     "--install",
-    help="Install the package",
+    help="Install the bundle",
     action="store_true",
     default=False,
     dest="install",
@@ -59,7 +59,7 @@ parser.add_argument(
 parser.add_argument(
     "-u",
     "--uninstall",
-    help="Uninstall the package",
+    help="Uninstall the bundle",
     action="store_true",
     default=False,
     dest="uninstall",
@@ -74,12 +74,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "-m",
-    "--method",
-    help="Whether to copy source files or to create symbolic links",
-    choices=["copy", "link"],
-    default="copy",
-    dest="method",
+    "-s",
+    "--symlink",
+    help="Create symbolic links instead of copying files. Recommended for git repositories.",
+    action="store_true",
+    default=False,
+    dest="symlink",
 )
 
 if len(sys.argv) == 1:
@@ -97,6 +97,13 @@ if not (args.install or args.uninstall):
 # | WORKING DIRECTORY                                                                                |
 # +--------------------------------------------------------------------------------------------------+
 
+# Resolve path relative to $Root, even if it does not exist
+def resolve_full_path(path: os.PathLike) -> str:
+    if os.path.isabs(path):
+        return path
+    return os.path.relpath(path, ROOT)
+
+# Resolve config file relative to working directory
 args.file = os.path.abspath(args.file)
 
 # Directory of the config file
@@ -113,6 +120,7 @@ config_file = args.file
 
 if not os.path.isfile(config_file):
     error("Configuration file is missing:", config_file)
+    exit(1)
 
 
 with open(config_file) as f:
@@ -146,25 +154,25 @@ def get_value(
 
 
 # The name of the package. Used for texmf file paths.
-package_name = get_value(config, key="name", value_type=str, required=True)
+bundle_name = get_value(config, key="name", value_type=str, required=True)
 
 # A list of all .sty of this package.
-package_list = get_value(
+sty_list = get_value(
     config, key="sty", value_type=list, required=False, default=[]
 )
 
 # A list of all .cls of this package.
-class_list = get_value(
+cls_list = get_value(
     config, key="cls", value_type=list, required=False, default=[]
 )
 
 # A list of all other files of this package.
-resource_list = get_value(
+res_list = get_value(
     config, key="res", value_type=list, required=False, default=[]
 )
 
 # The directory where all .sty source files must be located.
-texmf_sty_source_dir = get_value(
+sty_source_dir = get_value(
     config,
     "sty-dir",
     value_type=str,
@@ -172,12 +180,12 @@ texmf_sty_source_dir = get_value(
     default=os.path.join(ROOT, "texmf"),
 )
 
-if not os.path.isdir(texmf_sty_source_dir):
-    error("Must be a directory:", texmf_sty_source_dir)
+if len(sty_list) > 0 and not os.path.isdir(sty_source_dir):
+    error("Must be a directory:", sty_source_dir)
     exit(1)
 
 # The directory where all .cls source files must be located.
-texmf_cls_source_dir = get_value(
+cls_source_dir = get_value(
     config,
     "cls-dir",
     value_type=str,
@@ -185,11 +193,11 @@ texmf_cls_source_dir = get_value(
     default=os.path.join(ROOT, "texmf"),
 )
 
-if not os.path.isdir(texmf_cls_source_dir):
-    error("Must be a directory:", texmf_cls_source_dir)
+if len(cls_list) > 0 and not os.path.isdir(cls_source_dir):
+    error("Must be a directory:", cls_source_dir)
 
 # The directory where all resource files must be located. (optional)
-resource_source_dir = get_value(
+res_source_dir = get_value(
     config,
     "res-dir",
     value_type=str,
@@ -197,10 +205,10 @@ resource_source_dir = get_value(
     default=os.path.join(ROOT, "resources"),
 )
 
-if not os.path.isdir(resource_source_dir):
-    resource_source_dir = None
-    if resource_list != []:
-        resource_list = []
+if not os.path.isdir(res_source_dir):
+    res_source_dir = None
+    if res_list != []:
+        res_list = []
         print("[!] Resource directory not found, ignoring all resources")
 
 # The directory where all .cwl source files must be located. (optional)
@@ -229,20 +237,20 @@ texmf_dir = ""
 texstudio_dir = ""
 
 if sys.platform == "linux" or sys.platform == "linux2":
-    texmf_dir = os.path.join(USER_HOME, "texmf", "tex", "latex", package_name)
+    texmf_dir = os.path.join(USER_HOME, "texmf", "tex", "latex", bundle_name)
     texstudio_dir = os.path.join(
         USER_HOME, ".config", "texstudio", "completion", "user"
     )
 elif sys.platform == "windows":
     texmf_dir = os.path.join(
-        USER_HOME, "AppData", "Roaming", "MiKTeX", "latex", package_name
+        USER_HOME, "AppData", "Roaming", "MiKTeX", "latex", bundle_name
     )
     texstudio_dir = os.path.join(
         USER_HOME, "AppData", "Roaming", "texstudio", "completion", "user"
     )
 elif sys.platform == "darwin":
     texmf_dir = os.path.join(
-        USER_HOME, "Library", "texmf", "tex", "latex", package_name
+        USER_HOME, "Library", "texmf", "tex", "latex", bundle_name
     )
     texstudio_dir = os.path.join(
         USER_HOME, ".config", "texstudio", "completion", "user"
@@ -257,20 +265,22 @@ os.makedirs(texstudio_dir, exist_ok=True)
 # | METHOD SELECTION                                                                                 |
 # +--------------------------------------------------------------------------------------------------+
 
-# Copy files
-if args.method == "copy":
-
-    def install_file(from_file, to_file):
-        shutil.copy2(src=from_file, dst=to_file)
-
-
-# Create soft link
-elif args.method == "link":
+# Create symlinks
+if args.symlink:
 
     def install_file(from_file, to_file):
         if os.path.isfile(to_file):
             os.remove(to_file)
         os.symlink(src=from_file, dst=to_file)
+
+
+# Copy files
+else:
+
+    def install_file(from_file, to_file):
+        if os.path.isfile(to_file):
+            os.remove(to_file)
+        shutil.copy2(src=from_file, dst=to_file)
 
 
 # +--------------------------------------------------------------------------------------------------+
@@ -297,8 +307,8 @@ def iter_files(
         source = os.path.join(from_dir, name + suffix)
         dest = os.path.join(to_dir, name + suffix)
 
-        source = os.path.abspath(source)
-        dest = os.path.join(dest)
+        source = resolve_full_path(source)
+        dest = resolve_full_path(dest)
 
         # Create possible directories
         parent_dir = os.path.abspath(os.path.join(dest, os.pardir))
@@ -319,37 +329,37 @@ def iter_files(
 
 
 if args.install:
-    print("[ Install", package_name, "]")
+    print("[ Install", bundle_name, "]")
 elif args.uninstall:
-    print("[ Uninstall", package_name, "]")
+    print("[ Uninstall", bundle_name, "]")
 
 iter_files(
     "LaTeX packages",
-    package_list,
-    from_dir=texmf_sty_source_dir,
+    sty_list,
+    from_dir=sty_source_dir,
     to_dir=texmf_dir,
     suffix=".sty",
 )
 
 iter_files(
     "LaTeX document classes",
-    class_list,
-    from_dir=texmf_cls_source_dir,
+    cls_list,
+    from_dir=cls_source_dir,
     to_dir=texmf_dir,
     suffix=".cls",
 )
 
 iter_files(
     "Resource files",
-    resource_list,
-    from_dir=resource_source_dir,
+    res_list,
+    from_dir=res_source_dir,
     to_dir=texmf_dir,
     suffix="",
 )
 
 iter_files(
     "TeXStudio autocompletion files",
-    package_list + class_list,
+    sty_list + cls_list,
     from_dir=cwl_source_dir,
     to_dir=texstudio_dir,
     suffix=".cwl",

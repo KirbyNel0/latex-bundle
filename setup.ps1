@@ -47,7 +47,27 @@ $env:AppData = "/tmp"
 # | WORKING DIRECTORY                                                                                |
 # +--------------------------------------------------------------------------------------------------+
 
-$ConfigFile = [IO.Path]::GetFullPath("$ConfigFile")
+# Resolve path relative to $Root, even if it does not exist
+function Resolve-FullPath {
+	param(
+		$Path
+	)
+	
+	if ([IO.Path]::IsPathRooted("$Path")) {
+		# Path is already absolute
+		return "$Path"
+	}
+	# Resolve relative to $Root
+	return [IO.Path]::GetFullPath("$Path", "$Root")
+}
+
+if (!(Test-Path "$ConfigFile")) {
+	Write-Error "Configuration file is missing: $ConfigFile"
+	Exit 1
+}
+
+# Resolve config file relative to working directory
+$ConfigFile = Resolve-Path "$ConfigFile"
 
 # Directory of the config file
 $Root = Split-Path "$ConfigFile" -Parent
@@ -90,40 +110,40 @@ function Get-Value {
 }
 
 # The name of the package. Used for texmf file paths.
-$PackageName = Get-Value $Config -Key "name" -Required 1
+$BundleName = Get-Value $Config -Key "name" -Required 1
 
 # A list of all .sty of this package.
-$PackageList = Get-Value $Config -Key "sty" -Required 0 -Default @()
+$StyList = Get-Value $Config -Key "sty" -Required 0 -Default @()
 
 # A list of all .cls of this package.
-$ClassList = Get-Value $Config -Key "cls" -Required 0 -Default @()
+$ClsList = Get-Value $Config -Key "cls" -Required 0 -Default @()
 
 # A list of all other files of this package.
-$ResourceList = Get-Value $Config -Key "res" -Required 0 -Default @()
+$ResList = Get-Value $Config -Key "res" -Required 0 -Default @()
 
 # The directory where all .sty source files must be located.
-$TeXmfStySourceDir = Get-Value $Config -Key "sty-dir" -Required 0 -Default "texmf"
+$StySourceDir = Get-Value $Config -Key "sty-dir" -Required 0 -Default "texmf"
 
-if (!(Test-Path "$TeXmfStySourceDir" -PathType "Container")) {
-	Write-Error "Must be a directory: $TeXmfStySourceDir"
+if ($StyList.Length -gt 0 -and !(Test-Path "$StySourceDir" -PathType "Container")) {
+	Write-Error "Must be a directory: $StySourceDir"
 	Exit 1
 }
 
 # The directory where all .cls source files must be located.
-$TeXmfClsSourceDir = Get-Value $Config -Key "cls-dir" -Required 0 -Default "texmf"
+$ClsSourceDir = Get-Value $Config -Key "cls-dir" -Required 0 -Default "texmf"
 
-if (!(Test-Path "$TeXmfClsSourceDir" -PathType "Container")) {
-	Write-Error "Must be a directory: $TeXmfClsSourceDir"
+if ($ClsList.Length -gt 0 -and !(Test-Path "$ClsSourceDir" -PathType "Container")) {
+	Write-Error "Must be a directory: $ClsSourceDir"
 	Exit 1
 }
 
 # The directory where all resource files must be located. (optional)
-$ResourceSourceDir = Get-Value $Config -Key "res-dir" -Required 0 -Default "resources"
+$ResSourceDir = Get-Value $Config -Key "res-dir" -Required 0 -Default "resources"
 
-if (!(Test-Path "$ResourceSourceDir" -PathType "Container")) {
-	$ResourceSourceDir = $Null
-	if (!($ResourceList.Length -eq 0)) {
-		$ResourceList = $Null
+if (!(Test-Path "$ResSourceDir" -PathType "Container")) {
+	$ResSourceDir = $Null
+	if (!($ResList.Length -eq 0)) {
+		$ResList = $Null
 		Write-Host "[!] Resource directory not found, ignoring all resources"
 	}
 }
@@ -146,13 +166,13 @@ $TeXmfDir = ""
 $TeXStudioDir = ""
 
 if ($IsLinux) {
-	$TeXmfDir = Join-Path "$env:HOME" "texmf" "tex" "latex" "$PackageName"
+	$TeXmfDir = Join-Path "$env:HOME" "texmf" "tex" "latex" "$BundleName"
 	$TeXStudioDir = Join-Path "$env:HOME" ".config" "texstudio" "completion" "user"
 } elseif ($IsWindows) {
-	$TeXmfDir = Join-Path "$env:AppData" "MiKTeX" "latex" "$PackageName"
+	$TeXmfDir = Join-Path "$env:AppData" "MiKTeX" "latex" "$BundleName"
 	$TeXStudioDir = Join-Path "$env:AppData" "texstudio" "completion" "user"
 } elseif ($IsMacOS) {
-	$TeXmfDir = Join-Path "$env:HOME" "Library" "texmf" "tex" "latex" "$PackageName"
+	$TeXmfDir = Join-Path "$env:HOME" "Library" "texmf" "tex" "latex" "$BundleName"
 	$TeXStudioDir = Join-Path "$env:HOME" ".config" "texstudio" "completion" "user"
 }
 
@@ -171,7 +191,11 @@ function Install-File {
 		$ToFile
 	)
 	
-	Copy-Item -Path "$Source" -Destination "$Dest"
+	if (Test-Path "$ToFile" -PathType "Leaf") {
+		Remove-Item "$ToFile"
+	}
+	
+	Copy-Item -Path "$Source" -Destination "$ToFile"
 }
 
 # +--------------------------------------------------------------------------------------------------+
@@ -200,13 +224,15 @@ function Iter-Files {
 		$Source = Join-Path "$From" "$Name$Suffix"
 		$Dest = Join-Path "$To" "$Name$Suffix"
 		
-		$Source = [IO.Path]::GetFullPath("$Source")
-		$Dest = [IO.Path]::GetFullPath("$Dest")
+		$Source = Resolve-FullPath "$Source"
+		$Dest = Resolve-FullPath "$Dest"
 		
 		# Create possible directories
 		$ParentDir = Split-Path "$Dest" -Parent
 		
 		if ($Install) {
+			Write-Host "$Source"
+			
 			if (!(Test-Path "$Source" -PathType "Leaf")) {
 				continue
 			}
@@ -227,15 +253,15 @@ function Iter-Files {
 }
 
 if ($Install) {
-	Write-Host "[ Install $PackageName ]"
+	Write-Host "[ Install $BundleName ]"
 } elseif ($Uninstall) {
-	Write-Host "[ Uninstall $PackageName ]"
+	Write-Host "[ Uninstall $BundleName ]"
 }
 
-Iter-Files "LaTeX packages" $PackageList -From "$TeXmfStySourceDir" -To "$TeXmfDir" -Suffix ".sty"
+Iter-Files "LaTeX packages" $StyList -From "$StySourceDir" -To "$TeXmfDir" -Suffix ".sty"
 
-Iter-Files "LaTeX document classes" $ClassList -From "$TeXmfClsSourceDir" -To "$TeXmfDir" -Suffix ".cls"
+Iter-Files "LaTeX document classes" $ClsList -From "$ClsSourceDir" -To "$TeXmfDir" -Suffix ".cls"
 
-Iter-Files "Resource files" $ResourceList -From "$ResourceSourceDir" -To "$TeXmfDir" -Suffix ""
+Iter-Files "Resource files" $ResList -From "$ResSourceDir" -To "$TeXmfDir" -Suffix ""
 
-Iter-Files "TeXStudio autocompletion files" $($PackageList; $ClassList) -From "$CWLSourceDir" -To "$TeXStudioDir" -Suffix ".cwl"
+Iter-Files "TeXStudio autocompletion files" $($StyList; $ClsList) -From "$CWLSourceDir" -To "$TeXStudioDir" -Suffix ".cwl"
