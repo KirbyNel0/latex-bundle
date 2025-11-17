@@ -30,6 +30,7 @@ import os
 import sys
 import json
 import shutil
+import ctypes
 import argparse
 from typing import Optional, List
 
@@ -41,16 +42,29 @@ def error(*msg):
 def warn(*msg):
     print("[!]", *msg)
 
+
 # +--------------------------------------------------------------------------------------------------+
 # | ARGUMENTS                                                                                        |
 # +--------------------------------------------------------------------------------------------------+
 
-parser = argparse.ArgumentParser(description="Installation tool for LaTeX bundles")
+parser = argparse.ArgumentParser(
+    description="""\
+This script can be used to install a bunch of LaTeX files from a configuration file, usually named
+"texbundle.json". This configuration file defines a LaTeX bundle which will be installed for the
+current user.
+
+A LaTeX bundle is just a bunch of LaTeX files, like packages and document classes, which LaTeX
+should always be able to find when compiling your documents.
+
+Installation simply includes copying the files of the bundle to predefined places in your file
+system, which LaTeX searches by default.""",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+)
 
 parser.add_argument(
     "-i",
     "--install",
-    help="Install the bundle",
+    help="If provided, will install the current bundle.",
     action="store_true",
     default=False,
     dest="install",
@@ -59,7 +73,10 @@ parser.add_argument(
 parser.add_argument(
     "-u",
     "--uninstall",
-    help="Uninstall the bundle",
+    help="""\
+If provided, will uninstall the current bundle. Note that, if the configuration changed, some files
+of the bundle may not be uninstalled properly. If provided with -Install, the bundle is installed
+instead.""",
     action="store_true",
     default=False,
     dest="uninstall",
@@ -67,8 +84,10 @@ parser.add_argument(
 
 parser.add_argument(
     "-f",
-    "--file",
-    help="Configuration file to use",
+    "--config-file",
+    help="""\
+Defines the configuration file to use, defaults to "texbundle.tex". The bundle defined in that
+file is referred to as "current bundle".""",
     default="texbundle.json",
     dest="file",
 )
@@ -76,7 +95,9 @@ parser.add_argument(
 parser.add_argument(
     "-s",
     "--symlink",
-    help="Create symbolic links instead of copying files. Recommended for git repositories.",
+    help="""\
+Create symbolic links instead of copying files. Recommended for git repostories.
+Requires admin privileges on windows.""",
     action="store_true",
     default=False,
     dest="symlink",
@@ -97,11 +118,13 @@ if not (args.install or args.uninstall):
 # | WORKING DIRECTORY                                                                                |
 # +--------------------------------------------------------------------------------------------------+
 
+
 # Resolve path relative to $Root, even if it does not exist
 def resolve_full_path(path: os.PathLike) -> str:
     if os.path.isabs(path):
         return path
     return os.path.relpath(path, ROOT)
+
 
 # Resolve config file relative to working directory
 args.file = os.path.abspath(args.file)
@@ -157,19 +180,13 @@ def get_value(
 bundle_name = get_value(config, key="name", value_type=str, required=True)
 
 # A list of all .sty of this package.
-sty_list = get_value(
-    config, key="sty", value_type=list, required=False, default=[]
-)
+sty_list = get_value(config, key="sty", value_type=list, required=False, default=[])
 
 # A list of all .cls of this package.
-cls_list = get_value(
-    config, key="cls", value_type=list, required=False, default=[]
-)
+cls_list = get_value(config, key="cls", value_type=list, required=False, default=[])
 
 # A list of all other files of this package.
-res_list = get_value(
-    config, key="res", value_type=list, required=False, default=[]
-)
+res_list = get_value(config, key="res", value_type=list, required=False, default=[])
 
 # The directory where all .sty source files must be located.
 sty_source_dir = get_value(
@@ -249,14 +266,13 @@ elif sys.platform == "windows":
         USER_HOME, "AppData", "Roaming", "texstudio", "completion", "user"
     )
 elif sys.platform == "darwin":
-    texmf_dir = os.path.join(
-        USER_HOME, "Library", "texmf", "tex", "latex", bundle_name
-    )
+    texmf_dir = os.path.join(USER_HOME, "Library", "texmf", "tex", "latex", bundle_name)
     texstudio_dir = os.path.join(
         USER_HOME, ".config", "texstudio", "completion", "user"
     )
 else:
     error("Unknown platform:" + sys.platform)
+    exit(1)
 
 os.makedirs(texmf_dir, exist_ok=True)
 os.makedirs(texstudio_dir, exist_ok=True)
@@ -267,6 +283,15 @@ os.makedirs(texstudio_dir, exist_ok=True)
 
 # Create symlinks
 if args.symlink:
+    if sys.platform == "windows":
+        try:
+            is_admin = os.getuid() == 0
+        except AttributeError:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+        if not is_admin:
+            error("Admin privileges are required to create symlinks on windows.")
+            exit(1)
 
     def install_file(from_file, to_file):
         if os.path.isfile(to_file):

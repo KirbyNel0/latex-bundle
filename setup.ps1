@@ -22,6 +22,38 @@
 # |                                                                                                  |
 # +--------------------------------------------------------------------------------------------------+
 
+<#
+.SYNOPSIS
+Installation tool for LaTeX bundles.
+
+.DESCRIPTION
+This script can be used to install a bunch of LaTeX files from a configuration file, usually named
+"texbundle.json". This configuration file defines a LaTeX bundle which will be installed for the
+current user.
+
+A LaTeX bundle is just a bunch of LaTeX files, like packages and document classes, which LaTeX
+should always be able to find when compiling your documents.
+
+Installation simply includes copying the files of the bundle to predefined places in your file
+system, which LaTeX searches by default.
+
+.PARAMETER Install
+If provided, will install the current bundle.
+
+.PARAMETER Uninstall
+If provided, will uninstall the current bundle. Note that, if the configuration changed, some files
+of the bundle may not be uninstalled properly. If provided with -Install, the bundle is installed
+instead.
+
+.PARAMETER ConfigFile
+Defines the configuration file to use, defaults to "texbundle.tex". The bundle defined in that
+file is referred to as "current bundle".
+
+.PARAMETER SymLink
+Create symbolic links instead of copying files. Recommended for git repostories.
+Requires admin privileges on windows.
+#>
+
 # +--------------------------------------------------------------------------------------------------+
 # | ARGUMENTS                                                                                        |
 # +--------------------------------------------------------------------------------------------------+
@@ -29,7 +61,8 @@
 param (
 	[switch] $Install,
 	[switch] $Uninstall,
-	[string] $ConfigFile = [string] "texbundle.json"
+	[string] $ConfigFile = [string] "texbundle.json",
+	[switch] $SymLink
 )
 
 # Exit on error
@@ -39,9 +72,6 @@ if (!($Install -or $Uninstall)) {
 	Write-Error "Please specify either -Install or -Uninstall"
 	Exit 1
 }
-
-# Debugging on linux
-$env:AppData = "/tmp"
 
 # +--------------------------------------------------------------------------------------------------+
 # | WORKING DIRECTORY                                                                                |
@@ -174,6 +204,9 @@ if ($IsLinux) {
 } elseif ($IsMacOS) {
 	$TeXmfDir = Join-Path "$env:HOME" "Library" "texmf" "tex" "latex" "$BundleName"
 	$TeXStudioDir = Join-Path "$env:HOME" ".config" "texstudio" "completion" "user"
+} else {
+	Write-Error "Unknown operating system"
+	Exit 1
 }
 
 New-Item -ItemType "Directory" -Path "$TeXmfDir" -Force | Out-Null
@@ -184,18 +217,43 @@ New-Item -ItemType "Directory" -Path "$TeXStudioDir" -Force | Out-Null
 # +--------------------------------------------------------------------------------------------------+
 
 # On windows, only Admins can create symbolic links. For simplicity, this feature is ignored here.
-
-function Install-File {
-	param (
-		$FromFile,
-		$ToFile
-	)
-	
-	if (Test-Path "$ToFile" -PathType "Leaf") {
-		Remove-Item "$ToFile"
+if ($Symlink) {
+	if ($IsWindows) {
+		$User = [Security.Principal.WindowsIdentity]::GetCurrent();
+		$IsAdmin = (New-Object Security.Principal.WindowsPrincipal $User).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+		
+		if (!($IsAdmin)) {
+			Write-Error "Admin privileges are required to create symlinks on windows."
+			Exit 1
+		}
 	}
 	
-	Copy-Item -Path "$Source" -Destination "$ToFile"
+	function Install-File {
+		param (
+			$FromFile,
+			$ToFile
+		)
+		if (Test-Path "$ToFile" -PathType "Leaf") {
+			Remove-Item "$ToFile"
+		}
+		
+		New-Item -Value "$Source" -Path "$Dest" -ItemType SymbolicLink | Out-Null
+	}
+}
+
+else {
+	function Install-File {
+		param (
+			$FromFile,
+			$ToFile
+		)
+		
+		if (Test-Path "$ToFile" -PathType "Leaf") {
+			Remove-Item "$ToFile"
+		}
+		
+		Copy-Item -Path "$Source" -Destination "$ToFile"
+	}
 }
 
 # +--------------------------------------------------------------------------------------------------+
@@ -231,8 +289,6 @@ function Iter-Files {
 		$ParentDir = Split-Path "$Dest" -Parent
 		
 		if ($Install) {
-			Write-Host "$Source"
-			
 			if (!(Test-Path "$Source" -PathType "Leaf")) {
 				continue
 			}
