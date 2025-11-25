@@ -87,7 +87,7 @@ parser.add_argument(
     "--config-file",
     help="""\
 Defines the configuration file to use, defaults to "texbundle.tex". The bundle defined in that
-file is referred to as "current bundle".""",
+file is referred to as "current bundle". May also be a directory containing a "texbundle.json".""",
     default="texbundle.json",
     dest="file",
 )
@@ -123,7 +123,7 @@ if not (args.install or args.uninstall):
 def resolve_full_path(path: os.PathLike) -> str:
     if os.path.isabs(path):
         return path
-    return os.path.relpath(path, ROOT)
+    return os.path.join(ROOT, path)
 
 
 # Resolve config file relative to working directory
@@ -142,6 +142,9 @@ os.chdir(ROOT)
 config_file = args.file
 
 if not os.path.isfile(config_file):
+    config_file = os.path.join(config_file, "texbundle.json")
+
+if not os.path.isfile(config_file):
     error("Configuration file is missing:", config_file)
     exit(1)
 
@@ -157,6 +160,7 @@ def get_value(
     if key not in mapping:
         if required:
             error("Missing required key: '" + key + "'")
+            exit(1)
         else:
             return default
 
@@ -172,6 +176,7 @@ def get_value(
             + type(result).__name__
             + "'"
         )
+        exit(1)
 
     return result
 
@@ -294,6 +299,8 @@ if args.symlink:
             exit(1)
 
     def install_file(from_file, to_file):
+        from_file = resolve_full_path(from_file)
+        to_file = resolve_full_path(to_file)
         if os.path.isfile(to_file):
             os.remove(to_file)
         os.symlink(src=from_file, dst=to_file)
@@ -303,6 +310,8 @@ if args.symlink:
 else:
 
     def install_file(from_file, to_file):
+        from_file = resolve_full_path(from_file)
+        to_file = resolve_full_path(to_file)
         if os.path.isfile(to_file):
             os.remove(to_file)
         shutil.copy2(src=from_file, dst=to_file)

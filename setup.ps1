@@ -46,8 +46,8 @@ of the bundle may not be uninstalled properly. If provided with -Install, the bu
 instead.
 
 .PARAMETER ConfigFile
-Defines the configuration file to use, defaults to "texbundle.tex". The bundle defined in that
-file is referred to as "current bundle".
+Defines the configuration file to use, defaults to "texbundle.json". The bundle defined in that
+file is referred to as "current bundle". May also be a directory containing a "texbundle.json".
 
 .PARAMETER SymLink
 Create symbolic links instead of copying files. Recommended for git repostories.
@@ -110,6 +110,11 @@ Set-Location "$Root"
 
 # File where package information is stored
 # $ConfigFile
+
+if (!(Test-Path "$ConfigFile" -PathType "Leaf")) {
+	$ConfigFile = Join-Path "$ConfigFile" "texbundle.json"
+}
+
 
 # The dictionary storing all configuration
 $Config = Get-Content "$ConfigFile" | ConvertFrom-Json -AsHashTable
